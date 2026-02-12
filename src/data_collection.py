@@ -11,8 +11,12 @@ import time
 from collections import defaultdict
 import random
 
-# IMPORTANT: Replace with your email for NCBI
-Entrez.email = "samuel.modee@uib.no"  # NCBI requires this
+# NCBI requires an email for API access
+Entrez.email = os.environ.get("NCBI_EMAIL")
+if not Entrez.email:
+    raise SystemExit("Error: Set NCBI_EMAIL environment variable before running.\n"
+                     "  Windows:  set NCBI_EMAIL=your.email@example.com\n"
+                     "  Linux/Mac: export NCBI_EMAIL=your.email@example.com")
 
 # Virus families we'll classify (biosecurity-relevant)
 VIRUS_FAMILIES = {
