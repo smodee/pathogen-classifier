@@ -1,0 +1,11 @@
+torch>=2.10.0
+torchvision
+torchaudio
+transformers>=5.1.0
+datasets
+scikit-learn
+pandas
+numpy
+biopython
+azure-ai-ml
+azure-identity

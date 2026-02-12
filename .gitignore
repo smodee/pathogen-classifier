@@ -1,0 +1,47 @@
+# Virtual environment
+venv/
+env/
+
+# Data files (too large for git)
+data/raw/
+data/processed/
+*.csv
+*.fasta
+*.fa
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Azure credentials (NEVER commit these)
+.azure/
+*.json
+config.json
+
+# Model files (too large)
+models/
+*.pt
+*.pth
+*.onnx
+*.bin
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
