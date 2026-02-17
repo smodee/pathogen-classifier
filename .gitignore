@@ -22,8 +22,9 @@ __pycache__/
 
 # Azure credentials (NEVER commit these)
 .azure/
-*.json
-config.json
+.env
+*.pem
+*.key
 
 # Model files (too large)
 models/
@@ -45,6 +46,9 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Claude Code
+.claude/
 
 # Generated outputs
 *.png
