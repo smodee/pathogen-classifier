@@ -1,0 +1,53 @@
+{
+    "model_name": "InstaDeepAI/nucleotide-transformer-v2-50m-multi-species",
+    "num_labels": 7,
+    "trust_remote_code": true,
+
+    "train_csv": "data/processed/train.csv",
+    "val_csv": "data/processed/val.csv",
+    "output_dir": "models/nt-v2",
+
+    "max_length": 1000,
+    "seed": 42,
+
+    "gpu": {
+        "batch_size": 16,
+        "gradient_accumulation_steps": 2,
+        "fp16": true,
+        "lr_frozen": 2e-4,
+        "lr_unfrozen": 5e-5,
+        "num_workers": 2
+    },
+
+    "cpu": {
+        "batch_size": 4,
+        "gradient_accumulation_steps": 4,
+        "fp16": false,
+        "lr_frozen": 2e-4,
+        "lr_unfrozen": 5e-5,
+        "num_workers": 0
+    },
+
+    "epochs": 10,
+    "warmup_ratio": 0.1,
+    "weight_decay": 0.01,
+    "early_stopping_patience": 3,
+    "metric_for_best_model": "eval_macro_f1",
+
+    "unfreeze_layers": 0,
+
+    "augmentation": {
+        "enabled": true,
+        "reverse_complement": true,
+        "random_crop": true,
+        "min_crop_ratio": 0.5,
+        "sequencing_noise": "illumina",
+        "n_masking": true,
+        "mask_rate": 0.02,
+        "kmer_shuffle": false
+    },
+
+    "logging_steps": 10,
+    "save_strategy": "epoch",
+    "eval_strategy": "epoch"
+}
