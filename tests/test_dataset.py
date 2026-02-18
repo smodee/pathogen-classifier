@@ -317,3 +317,37 @@ class TestEndToEndPipeline:
             assert batch['input_ids'].shape[0] == batch['labels'].shape[0]
 
         assert total_samples == len(dataset)
+
+    def test_real_nt_v2_tokenizer(self, dataset):
+        """End-to-end with the real NT v2 tokenizer (not mocked)."""
+        from torch.utils.data import DataLoader
+
+        from transformers import AutoTokenizer
+
+        from src.augmentation import GenomicAugmentationDataset
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            'InstaDeepAI/nucleotide-transformer-v2-50m-multi-species',
+            trust_remote_code=True,
+        )
+
+        augmented = GenomicAugmentationDataset(
+            dataset,
+            reverse_complement=True,
+            random_crop=False,
+            n_masking=False,
+        )
+
+        collator = NTCollator(tokenizer, max_length=1000)
+        loader = DataLoader(augmented, batch_size=4, shuffle=False, collate_fn=collator)
+
+        batch = next(iter(loader))
+
+        assert batch['input_ids'].ndim == 2
+        assert batch['input_ids'].shape[0] == 4
+        assert batch['attention_mask'].shape == batch['input_ids'].shape
+        assert batch['labels'].shape == (4,)
+        assert batch['labels'].dtype == torch.long
+        assert batch['input_ids'].dtype == torch.long
+        # Token count should be <= max_length
+        assert batch['input_ids'].shape[1] <= 1000
