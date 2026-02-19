@@ -52,3 +52,5 @@ logs/
 
 # Generated outputs
 *.png
+reports/*_metrics.json
+reports/model_comparison.*
