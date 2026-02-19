@@ -1,17 +1,13 @@
 """Tests for the baseline k-mer + XGBoost classifier."""
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-# Allow imports from src/
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'src'))
-
-from baseline_model import (
+from src.baseline_model import (
     _build_kmer_vocabulary,
     _compute_class_weights,
     compute_kmer_frequencies,
@@ -19,6 +15,7 @@ from baseline_model import (
     predict_baseline,
     train_baseline,
 )
+from src.data_exploration import FAMILY_ORDER
 
 
 # ---------------------------------------------------------------------------
@@ -245,10 +242,11 @@ class TestTrainPredictIntegration:
         with open(output_dir / 'label_encoder.json') as f:
             label_encoder = json.load(f)
 
-        for family in FAMILIES:
+        # All 7 families should be present (full FAMILY_ORDER)
+        for family in FAMILY_ORDER:
             assert family in label_encoder
         # Indices should be contiguous integers
-        assert sorted(label_encoder.values()) == list(range(len(label_encoder)))
+        assert sorted(label_encoder.values()) == list(range(len(FAMILY_ORDER)))
 
     def test_kmer_params_content(self, synthetic_csvs, tmp_path):
         train_path, val_path = synthetic_csvs
@@ -289,7 +287,8 @@ class TestTrainPredictIntegration:
 
         assert len(y_true) == 9  # 3 families * 3 samples
         assert len(y_pred) == 9
-        assert y_prob.shape == (9, 3)
+        # Full 7-class label ordering used unconditionally
+        assert y_prob.shape == (9, len(FAMILY_ORDER))
         # Probabilities should sum to ~1 per sample
         for row in y_prob:
             assert abs(row.sum() - 1.0) < 1e-5
