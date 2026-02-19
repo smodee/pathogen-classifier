@@ -24,7 +24,7 @@ from sklearn.metrics import (
     f1_score,
 )
 
-from data_exploration import FAMILY_ORDER
+from src.data_exploration import FAMILY_ORDER
 
 
 def compute_kmer_frequencies(sequence, k=5):
@@ -157,14 +157,10 @@ def train_baseline(train_path, val_path, k=5, output_dir='models/baseline',
     print(f"  Train: {len(train_df)} samples")
     print(f"  Val:   {len(val_df)} samples")
 
-    # Encode labels using FAMILY_ORDER for consistent ordering
-    families_in_data = set(train_df['family'].unique()) | set(val_df['family'].unique())
-    label_order = [f for f in FAMILY_ORDER if f in families_in_data]
-    # Include any families not in FAMILY_ORDER (shouldn't happen, but be safe)
-    for f in sorted(families_in_data):
-        if f not in label_order:
-            label_order.append(f)
-
+    # Encode labels using the full FAMILY_ORDER for consistent ordering
+    # with the transformer pipeline (dataset.py). XGBoost handles classes
+    # with zero training samples via num_class.
+    label_order = list(FAMILY_ORDER)
     label_to_idx = {name: i for i, name in enumerate(label_order)}
     idx_to_label = {i: name for name, i in label_to_idx.items()}
 
@@ -181,30 +177,39 @@ def train_baseline(train_path, val_path, k=5, output_dir='models/baseline',
     # Compute sample weights for class imbalance
     sample_weights = _compute_class_weights(y_train)
 
-    # Train XGBoost
+    # Train XGBoost using the native API so that num_class is respected
+    # even when some classes have zero training samples.
     print("Training XGBoost...")
     n_classes = len(label_order)
-    model = xgb.XGBClassifier(
-        n_estimators=n_estimators,
-        max_depth=max_depth,
-        learning_rate=learning_rate,
-        objective='multi:softprob',
-        num_class=n_classes,
-        eval_metric='mlogloss',
-        random_state=random_state,
-        verbosity=1,
+    dtrain = xgb.DMatrix(X_train, label=y_train, weight=sample_weights)
+    dval = xgb.DMatrix(X_val, label=y_val)
+
+    params = {
+        'max_depth': max_depth,
+        'learning_rate': learning_rate,
+        'objective': 'multi:softprob',
+        'num_class': n_classes,
+        'eval_metric': 'mlogloss',
+        'seed': random_state,
+        'verbosity': 1,
+    }
+    booster = xgb.train(
+        params,
+        dtrain,
+        num_boost_round=n_estimators,
+        evals=[(dval, 'val')],
+        verbose_eval=True,
     )
-    model.fit(
-        X_train, y_train,
-        sample_weight=sample_weights,
-        eval_set=[(X_val, y_val)],
-        verbose=True,
-    )
+
+    # Wrap in XGBClassifier for consistent save/load with predict_baseline
+    model = xgb.XGBClassifier()
+    model._Booster = booster
+    model.n_classes_ = n_classes
 
     # Evaluate on validation set
     print("Evaluating on validation set...")
-    y_pred = model.predict(X_val)
-    y_prob = model.predict_proba(X_val)
+    y_prob = booster.predict(dval)
+    y_pred = np.argmax(y_prob, axis=1)
 
     metrics = _compute_metrics(y_val, y_pred, y_prob, idx_to_label)
 
@@ -217,7 +222,7 @@ def train_baseline(train_path, val_path, k=5, output_dir='models/baseline',
     # Save artifacts
     print(f"\nSaving to {output_dir}/...")
 
-    model.save_model(str(output_dir / 'xgboost_model.json'))
+    booster.save_model(str(output_dir / 'xgboost_model.json'))
 
     with open(output_dir / 'label_encoder.json', 'w') as f:
         json.dump(label_to_idx, f, indent=2)
@@ -252,8 +257,10 @@ def _compute_metrics(y_true, y_pred, y_prob, idx_to_label):
         Dictionary of metrics.
     """
     target_names = [idx_to_label[i] for i in sorted(idx_to_label.keys())]
+    labels = list(range(len(target_names)))
     report = classification_report(
-        y_true, y_pred, target_names=target_names, output_dict=True, zero_division=0
+        y_true, y_pred, labels=labels, target_names=target_names,
+        output_dict=True, zero_division=0,
     )
 
     per_class = {}
@@ -269,8 +276,8 @@ def _compute_metrics(y_true, y_pred, y_prob, idx_to_label):
     return {
         'accuracy': float(accuracy_score(y_true, y_pred)),
         'balanced_accuracy': float(balanced_accuracy_score(y_true, y_pred)),
-        'macro_f1': float(f1_score(y_true, y_pred, average='macro', zero_division=0)),
-        'weighted_f1': float(f1_score(y_true, y_pred, average='weighted', zero_division=0)),
+        'macro_f1': float(f1_score(y_true, y_pred, average='macro', labels=labels, zero_division=0)),
+        'weighted_f1': float(f1_score(y_true, y_pred, average='weighted', labels=labels, zero_division=0)),
         'per_class': per_class,
     }
 
@@ -293,9 +300,9 @@ def predict_baseline(test_path, model_dir='models/baseline'):
     """
     model_dir = Path(model_dir)
 
-    # Load model
-    model = xgb.XGBClassifier()
-    model.load_model(str(model_dir / 'xgboost_model.json'))
+    # Load model (native Booster for consistent handling of num_class)
+    booster = xgb.Booster()
+    booster.load_model(str(model_dir / 'xgboost_model.json'))
 
     # Load label encoder
     with open(model_dir / 'label_encoder.json') as f:
@@ -311,9 +318,10 @@ def predict_baseline(test_path, model_dir='models/baseline'):
     y_true = np.array([label_to_idx[f] for f in test_df['family']])
 
     X_test = extract_features(test_df['sequence'].tolist(), k)
+    dtest = xgb.DMatrix(X_test)
 
-    y_pred = model.predict(X_test)
-    y_prob = model.predict_proba(X_test)
+    y_prob = booster.predict(dtest)
+    y_pred = np.argmax(y_prob, axis=1)
 
     return y_true, y_pred, y_prob
 

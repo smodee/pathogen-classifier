@@ -34,10 +34,7 @@ from sklearn.metrics import (
     recall_score,
 )
 
-try:
-    from data_exploration import FAMILY_ORDER
-except ModuleNotFoundError:
-    from src.data_exploration import FAMILY_ORDER
+from src.data_exploration import FAMILY_ORDER
 
 # ---------------------------------------------------------------------------
 # Lazy plotting (matches data_exploration.py pattern)
@@ -270,7 +267,7 @@ def evaluate_model(model_type, model_dir, test_csv, output_dir):
 
     # Obtain predictions from the appropriate model
     if model_type == "baseline":
-        y_pred, y_prob = _predict_baseline(model_dir, test_df, label_names)
+        y_pred, y_prob = _predict_baseline(model_dir, test_csv, label_names)
     elif model_type == "transformer":
         y_pred, y_prob = _predict_transformer(model_dir, test_df, label_names)
     else:
@@ -301,17 +298,41 @@ def evaluate_model(model_type, model_dir, test_csv, output_dir):
     return metrics
 
 
-def _predict_baseline(model_dir, test_df, label_names):
-    """Load a saved baseline model and return predictions."""
-    import joblib
+def _predict_baseline(model_dir, test_csv, label_names):
+    """Load a saved baseline model and return predictions.
 
-    model_path = model_dir / "model.joblib"
-    model = joblib.load(model_path)
+    Delegates to ``baseline_model.predict_baseline`` so that k-mer size,
+    vocabulary, model format and label encoding stay consistent with
+    training.
+    """
+    from src.baseline_model import predict_baseline
 
-    X_test = _extract_kmer_features(test_df["sequence"])
+    # predict_baseline returns indices relative to its own label_to_idx
+    _, raw_pred, raw_prob = predict_baseline(
+        test_path=str(test_csv),
+        model_dir=str(model_dir),
+    )
 
-    y_pred = model.predict(X_test)
-    y_prob = model.predict_proba(X_test) if hasattr(model, "predict_proba") else None
+    # Load the baseline model's label ordering to remap to evaluate's ordering
+    with open(model_dir / "label_encoder.json") as f:
+        bl_label_to_idx = json.load(f)
+    bl_idx_to_label = {v: k for k, v in bl_label_to_idx.items()}
+
+    # Build a mapping from baseline indices to evaluate's indices
+    eval_label_to_idx = {name: i for i, name in enumerate(label_names)}
+    remap = np.array([
+        eval_label_to_idx[bl_idx_to_label[i]]
+        for i in range(len(bl_label_to_idx))
+    ])
+
+    y_pred = remap[raw_pred]
+
+    # Reorder probability columns to match evaluate's label ordering
+    y_prob = np.zeros((raw_prob.shape[0], len(label_names)), dtype=np.float32)
+    for bl_idx, bl_name in bl_idx_to_label.items():
+        eval_idx = eval_label_to_idx[bl_name]
+        y_prob[:, eval_idx] = raw_prob[:, bl_idx]
+
     return y_pred, y_prob
 
 
@@ -321,9 +342,20 @@ def _predict_transformer(model_dir, test_df, label_names):
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = AutoTokenizer.from_pretrained(model_dir)
-    model = AutoModelForSequenceClassification.from_pretrained(model_dir).to(device)
+    tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_dir, trust_remote_code=True,
+    ).to(device)
     model.eval()
+
+    # Use the same max_length as training (default 1000 matches NTCollator)
+    max_length = 1000
+    tokenizer_config = model_dir / "tokenizer_config.json"
+    if tokenizer_config.exists():
+        with open(tokenizer_config) as f:
+            tok_cfg = json.load(f)
+        if "model_max_length" in tok_cfg:
+            max_length = tok_cfg["model_max_length"]
 
     all_preds = []
     all_probs = []
@@ -337,7 +369,7 @@ def _predict_transformer(model_dir, test_df, label_names):
             return_tensors="pt",
             padding=True,
             truncation=True,
-            max_length=512,
+            max_length=max_length,
         ).to(device)
         with torch.no_grad():
             logits = model(**inputs).logits
@@ -348,27 +380,6 @@ def _predict_transformer(model_dir, test_df, label_names):
 
     return np.concatenate(all_preds), np.concatenate(all_probs)
 
-
-def _extract_kmer_features(sequences, k=4):
-    """Convert sequences to k-mer frequency vectors for the baseline model."""
-    from itertools import product
-
-    kmers = ["".join(combo) for combo in product("ACGT", repeat=k)]
-    kmer_to_idx = {km: i for i, km in enumerate(kmers)}
-
-    rows = []
-    for seq in sequences:
-        seq = seq.upper()
-        counts = np.zeros(len(kmers), dtype=np.float32)
-        for i in range(len(seq) - k + 1):
-            kmer = seq[i : i + k]
-            if kmer in kmer_to_idx:
-                counts[kmer_to_idx[kmer]] += 1
-        total = counts.sum()
-        if total > 0:
-            counts /= total
-        rows.append(counts)
-    return np.array(rows)
 
 
 # ---------------------------------------------------------------------------

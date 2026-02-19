@@ -20,6 +20,7 @@ Usage:
 
 import argparse
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -299,6 +300,30 @@ def train(config_path, max_train_samples=None, max_val_samples=None,
     print(f"\nSaving model to {output_dir}...")
     trainer.save_model(str(output_dir))
     tokenizer.save_pretrained(str(output_dir))
+
+    # Copy custom model code so the saved directory loads standalone
+    # with AutoModel.from_pretrained(..., trust_remote_code=True).
+    try:
+        from transformers.dynamic_module_utils import get_cached_module_file
+        for fname in ('modeling_esm.py', 'esm_config.py'):
+            try:
+                src = get_cached_module_file(config['model_name'], fname)
+                shutil.copy2(src, output_dir / fname)
+                print(f"  Copied custom code: {fname}")
+            except Exception:
+                pass
+    except ImportError:
+        # Fallback: copy from the HuggingFace cache directory directly
+        from transformers.utils import cached_file
+        for fname in ('modeling_esm.py', 'esm_config.py'):
+            try:
+                src = cached_file(config['model_name'], fname,
+                                  _raise_exceptions_for_missing_entries=False)
+                if src is not None:
+                    shutil.copy2(src, output_dir / fname)
+                    print(f"  Copied custom code: {fname}")
+            except Exception:
+                pass
 
     # Evaluate and save metrics
     metrics = trainer.evaluate()
