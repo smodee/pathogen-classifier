@@ -1,27 +1,98 @@
-# Viral Pathogen Classification using Genomic Transformers
+# Viral Pathogen Classification using Genomic Sequences
 
-A machine learning project for classifying viral pathogens from genomic sequences using transformer models, deployed on Azure ML.
+An end-to-end machine learning pipeline for classifying viral pathogens into 7 biosecurity-relevant virus families from raw genomic sequences. Compares a classical k-mer frequency baseline against a fine-tuned Nucleotide Transformer (NT v2 50M).
 
-## Project Overview
+Built as a portfolio project for a Data Scientist position at the European Centre for Disease Prevention and Control (ECDC).
 
-This project demonstrates end-to-end ML workflow:
+## Results
 
-- Genomic sequence data collection from NCBI
-- Fine-tuning pre-trained transformer models for virus family classification
-- Azure ML deployment with REST API
-- CI/CD pipeline with GitHub Actions
+Evaluated on a held-out test set (6,553 sequences):
 
-## Status
+| Model | Macro F1 | Balanced Accuracy | Accuracy | Trainable Params |
+|---|---|---|---|---|
+| **k-mer + XGBoost (baseline)** | **0.9979** | **0.9976** | **0.9994** | 1,024 features |
+| NT v2 50M (frozen encoder) | 0.9640 | 0.9628 | 0.9881 | 266K / 53.8M |
 
-Work in progress - initial setup phase
+### Per-class F1 scores (test set)
 
-## Tech Stack
+| Family | Baseline | NT v2 | Test Samples |
+|---|---|---|---|
+| Poxviridae | 1.000 | 0.999 | 3,653 |
+| Coronaviridae | 1.000 | 0.999 | 1,199 |
+| Paramyxoviridae | 0.999 | 0.960 | 699 |
+| Filoviridae | 1.000 | 0.933 | 371 |
+| Flaviviridae | 0.999 | 0.976 | 443 |
+| Arenaviridae | 0.989 | 0.890 | 87 |
+| Orthomyxoviridae | 1.000 | 0.990 | 101 |
 
-- Python 3.13
-- PyTorch 2.10
-- Hugging Face Transformers
-- Azure ML
-- BioPython
+### Key findings
+
+- The k-mer frequency baseline achieves near-perfect classification, indicating strong compositional signatures across virus families.
+- The NT v2 transformer with frozen encoder (only 0.5% of parameters trainable) performs well but does not surpass the baseline. Unfreezing encoder layers or using a larger model may close the gap.
+- Both models handle class imbalance effectively via inverse-frequency weighting (Arenaviridae comprises only 1.3% of data).
+
+## Project Structure
+
+```
+pathogen-classifier/
+  data/
+    raw/                  # NCBI viral sequences (gitignored)
+    processed/            # Train/val/test splits (gitignored)
+  src/
+    data_exploration.py   # EDA, statistics, visualizations
+    data_preprocessing.py # Dedup, chunking, stratified splitting
+    baseline_model.py     # k-mer frequency + XGBoost
+    dataset.py            # PyTorch Dataset + NT v2 tokenization
+    augmentation.py       # Genomic data augmentation (5 transforms)
+    train_transformer.py  # NT v2 50M fine-tuning with HuggingFace Trainer
+    evaluate.py           # Unified evaluation, metrics, comparison
+    export_model.py       # ONNX export + Azure ML packaging
+  configs/
+    train_nt.json         # Transformer training hyperparameters
+  models/                 # Trained models (gitignored)
+  reports/                # Evaluation outputs (gitignored)
+  notebooks/              # Kaggle training & verification scripts
+  tests/                  # Unit and integration tests
+```
+
+## Data
+
+- **Source:** NCBI Nucleotide database via BioPython Entrez API
+- **7 virus families:** Poxviridae, Coronaviridae, Paramyxoviridae, Filoviridae, Flaviviridae, Arenaviridae, Orthomyxoviridae
+- **Pipeline:** 4,791 raw sequences -> deduplication -> 5,000 bp chunking -> stratified split
+- **Splits:** 30,774 train / 6,554 val / 6,553 test chunks
+
+## Models
+
+### Baseline: k-mer + XGBoost
+
+Extracts normalized 5-mer frequency vectors (1,024 features) and trains a gradient-boosted classifier with inverse-frequency class weights.
+
+```bash
+python -m src.baseline_model --train data/processed/train.csv --val data/processed/val.csv
+```
+
+### Transformer: Nucleotide Transformer v2 50M
+
+Fine-tunes [InstaDeepAI/nucleotide-transformer-v2-50m-multi-species](https://huggingface.co/InstaDeepAI/nucleotide-transformer-v2-50m-multi-species) with a frozen encoder (only classification head trainable). Uses class-weighted cross-entropy loss and genomic data augmentation (reverse complement, random crop, sequencing noise, N-masking).
+
+Trained on Kaggle free T4 GPU. See `notebooks/kaggle_nt_v2_training.py`.
+
+### Evaluation
+
+```bash
+# Evaluate a single model
+python -m src.evaluate --model-type baseline --model-dir models/baseline --test data/processed/test.csv
+
+# Compare models
+python -m src.evaluate --compare reports/baseline_metrics.json reports/transformer_metrics.json
+```
+
+### ONNX Export
+
+```bash
+python -m src.export_model --model-dir models/nt-v2 --format onnx --output models/exports/nt_v2.onnx --validate --test-csv data/processed/test.csv
+```
 
 ## Installation
 
@@ -31,9 +102,19 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Usage
+## Testing
 
-*Coming soon*
+```bash
+pytest tests/ -v
+```
+
+## Tech Stack
+
+- Python 3.13, PyTorch 2.10, HuggingFace Transformers 4.x
+- XGBoost, scikit-learn, pandas, NumPy
+- ONNX / ONNX Runtime for model export
+- BioPython for NCBI data collection
+- Azure ML (Phase 3 — deployment)
 
 ## License
 
