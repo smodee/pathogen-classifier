@@ -47,6 +47,12 @@ pathogen-classifier/
     train_transformer.py  # NT v2 50M fine-tuning with HuggingFace Trainer
     evaluate.py           # Unified evaluation, metrics, comparison
     export_model.py       # ONNX export + Azure ML packaging
+  deployment/
+    azure/
+      deploy.py           # Azure ML deployment orchestration
+      score.py            # XGBoost scoring script for managed endpoint
+      test_endpoint.py    # Client script to test the live endpoint
+      conda_baseline.yml  # Lightweight conda environment (no torch)
   configs/
     train_nt.json         # Transformer training hyperparameters
   models/                 # Trained models (gitignored)
@@ -94,6 +100,44 @@ python -m src.evaluate --compare reports/baseline_metrics.json reports/transform
 python -m src.export_model --model-dir models/nt-v2 --format onnx --output models/exports/nt_v2.onnx --validate --test-csv data/processed/test.csv
 ```
 
+## Deployment
+
+The best-performing model (k-mer + XGBoost) is deployed as a REST API on Azure ML. The baseline was chosen over the transformer for deployment because it achieves higher accuracy (99.79% vs 96.40% macro F1), runs on CPU-only infrastructure, and has a 2.2 MB model footprint requiring no PyTorch dependency.
+
+### Prerequisites
+
+1. [Azure free account](https://azure.microsoft.com/free/) ($200 credits, 30 days)
+2. Azure CLI: `winget install Microsoft.AzureCLI`
+3. Authenticate: `az login`
+
+### Deploy
+
+```bash
+python deployment/azure/deploy.py \
+    --subscription-id <your-subscription-id> \
+    --resource-group pathogen-rg \
+    --workspace-name pathogen-ws
+```
+
+### Test the endpoint
+
+```bash
+python deployment/azure/test_endpoint.py \
+    --endpoint-url <scoring-uri> \
+    --api-key <api-key>
+```
+
+### Teardown (stop billing)
+
+```bash
+python deployment/azure/deploy.py --teardown \
+    --subscription-id <your-subscription-id> \
+    --resource-group pathogen-rg \
+    --workspace-name pathogen-ws
+```
+
+Estimated cost: ~$1-2 for a demo session (Standard_DS2_v2 at $0.146/hr).
+
 ## Installation
 
 ```bash
@@ -114,7 +158,7 @@ pytest tests/ -v
 - XGBoost, scikit-learn, pandas, NumPy
 - ONNX / ONNX Runtime for model export
 - BioPython for NCBI data collection
-- Azure ML (Phase 3 — deployment)
+- Azure ML managed endpoints for REST API deployment
 
 ## License
 

@@ -1,0 +1,10 @@
+name: pathogen-baseline
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    - xgboost>=2.0.0
+    - numpy
+    - inference-schema[numpy-support]
