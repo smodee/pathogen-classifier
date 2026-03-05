@@ -4,6 +4,34 @@ An end-to-end machine learning pipeline for classifying viral pathogens into 7 b
 
 Built as a portfolio project for a Data Scientist position at the European Centre for Disease Prevention and Control (ECDC).
 
+## Architecture
+
+```
+NCBI Nucleotide DB
+        |
+        v
+  [Data Acquisition]  ------>  4,791 raw viral sequences
+        |
+  [Preprocessing]     ------>  Dedup, 5 kb chunking, stratified split
+        |
+        v
+  43,881 chunks (train/val/test)
+       / \
+      /   \
+     v     v
+  [k-mer + XGBoost]    [NT v2 50M Transformer]
+  5-mer frequencies     Frozen encoder + head
+  1,024 features        266K trainable params
+  CPU training          Kaggle T4 GPU
+     |                    |
+     v                    v
+  [Unified Evaluation]  ------>  Metrics, confusion matrices, comparison
+        |
+        v
+  [Azure ML Deployment] ------>  REST API (XGBoost baseline)
+  Standard_DS2_v2 CPU            POST /score {"sequences": [...]}
+```
+
 ## Results
 
 Evaluated on a held-out test set (6,553 sequences):
@@ -106,9 +134,17 @@ The best-performing model (k-mer + XGBoost) is deployed as a REST API on Azure M
 
 ### Prerequisites
 
-1. [Azure free account](https://azure.microsoft.com/free/) ($200 credits, 30 days)
+1. [Azure account](https://azure.microsoft.com/free/) (free tier or Pay-As-You-Go)
 2. Azure CLI: `winget install Microsoft.AzureCLI`
-3. Authenticate: `az login`
+3. Authenticate and set up resources:
+
+```bash
+az login
+az provider register --namespace Microsoft.MachineLearningServices
+az provider register --namespace Microsoft.PolicyInsights
+az group create --name pathogen-rg --location westeurope
+az ml workspace create --name pathogen-ws --resource-group pathogen-rg
+```
 
 ### Deploy
 
@@ -125,6 +161,35 @@ python deployment/azure/deploy.py \
 python deployment/azure/test_endpoint.py \
     --endpoint-url <scoring-uri> \
     --api-key <api-key>
+```
+
+#### API request/response example
+
+```bash
+curl -X POST <scoring-uri> \
+  -H "Authorization: Bearer <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"sequences": ["ATGGATCCAACATTTCCATTGGGTTCTACT..."]}'
+```
+
+```json
+{
+  "predictions": [
+    {
+      "predicted_family": "Poxviridae",
+      "confidence": 0.9988,
+      "probabilities": {
+        "Poxviridae": 0.9988,
+        "Coronaviridae": 0.0003,
+        "Paramyxoviridae": 0.0002,
+        "Filoviridae": 0.0001,
+        "Flaviviridae": 0.0002,
+        "Arenaviridae": 0.0001,
+        "Orthomyxoviridae": 0.0003
+      }
+    }
+  ]
+}
 ```
 
 ### Teardown (stop billing)
@@ -147,6 +212,8 @@ pip install -r requirements.txt
 ```
 
 ## Testing
+
+107 tests covering data augmentation, baseline model, evaluation metrics, and scoring script validation.
 
 ```bash
 pytest tests/ -v
