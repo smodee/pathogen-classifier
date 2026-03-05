@@ -273,6 +273,10 @@ class TestValidation:
         with pytest.raises(ValueError, match="invalid characters"):
             score._validate_sequences(["ACGT123"])
 
+    def test_accepts_iupac_codes(self):
+        """IUPAC ambiguity codes should be accepted."""
+        score._validate_sequences(["ACGTRYWSMKHBDVN"])
+
     def test_rejects_non_string(self):
         """Non-string elements should raise ValueError."""
         with pytest.raises(ValueError, match="non-empty string"):

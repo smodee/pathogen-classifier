@@ -103,7 +103,7 @@ def _extract_features(sequences, k, vocab, kmer_to_idx):
 # Input validation
 # ============================================================================
 
-_VALID_DNA = re.compile(r"^[ACGTNacgtn]+$")
+_VALID_DNA = re.compile(r"^[ACGTNRYSWKMBDHVacgtnryswkmbdhv]+$")
 
 
 def _validate_sequences(sequences):
@@ -134,7 +134,7 @@ def _validate_sequences(sequences):
         if not _VALID_DNA.match(seq):
             raise ValueError(
                 f"Sequence at index {i} contains invalid characters. "
-                f"Only A, C, G, T, N are allowed."
+                f"Only IUPAC nucleotide codes (A, C, G, T, N, R, Y, etc.) are allowed."
             )
 
 
@@ -153,10 +153,20 @@ def init():
     global _kmer_k, _kmer_vocab, _kmer_to_idx
 
     model_dir = os.getenv("AZUREML_MODEL_DIR", "models/baseline")
+
+    # Azure ML may nest files under a subdirectory (e.g., baseline/)
+    # when registering a directory as a model. Search for the model file.
+    model_path = os.path.join(model_dir, "xgboost_model.json")
+    if not os.path.exists(model_path):
+        for root, _dirs, files in os.walk(model_dir):
+            if "xgboost_model.json" in files:
+                model_dir = root
+                model_path = os.path.join(root, "xgboost_model.json")
+                break
+
     logger.info("Loading model from %s", model_dir)
 
     # Load XGBoost model
-    model_path = os.path.join(model_dir, "xgboost_model.json")
     _booster = xgb.Booster()
     _booster.load_model(model_path)
     logger.info("XGBoost model loaded from %s", model_path)

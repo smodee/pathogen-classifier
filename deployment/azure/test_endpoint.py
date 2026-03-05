@@ -98,6 +98,11 @@ def test_endpoint(endpoint_url, api_key, sequences, names=None):
 
     elapsed = time.time() - start
 
+    # Azure ML may return a JSON string (score.py returns json.dumps())
+    # so we may need to parse it again
+    if isinstance(result, str):
+        result = json.loads(result)
+
     if "error" in result:
         print(f"Error from endpoint: {result['error']}")
         return

@@ -8,3 +8,4 @@ dependencies:
     - xgboost>=2.0.0
     - numpy
     - inference-schema[numpy-support]
+    - azureml-inference-server-http
